@@ -32,10 +32,10 @@ A production-ready **Document Question-Answering system** built with Django, Lan
 - Docker & Docker Compose installed
 - An [OpenRouter](https://openrouter.ai) API key (free tier available)
 
-### 1. Clone / unzip the project
+### 1. Clone the project
 
 ```bash
-unzip docqa.zip && cd docqa
+git clone https://github.com/CataphractScript/rag-document-qa.git
 ```
 
 ### 2. Set your OpenRouter API key
@@ -267,7 +267,7 @@ Access at **http://localhost:8000/admin/** with credentials `admin` / `admin123`
 ## Project Structure
 
 ```
-docqa/
+rag-document-qa/
 ├── config/               # Django project settings & URLs
 │   ├── settings.py       # All configuration (env-var driven)
 │   └── urls.py
