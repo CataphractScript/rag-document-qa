@@ -11,14 +11,17 @@ Flow:
 
 The LLM is instructed to answer ONLY from the provided context,
 refusing to use outside knowledge.
+
+Note: We call the OpenAI client directly (not via LangChain's ChatOpenAI wrapper)
+to avoid the 'proxies' argument incompatibility in openai>=1.40.
 """
 
 import logging
+import os
 from typing import TypedDict
 
 from langchain_community.vectorstores import FAISS
-from langchain.prompts import PromptTemplate
-from langchain_community.chat_models import ChatOpenAI
+from openai import OpenAI
 from django.conf import settings
 
 from documents.services import get_embeddings, VECTOR_STORE_PATH
@@ -26,12 +29,11 @@ from documents.services import get_embeddings, VECTOR_STORE_PATH
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Prompt template
+# Prompt template (plain string — no LangChain dependency needed here)
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT_TEMPLATE = PromptTemplate(
-    input_variables=["context", "question"],
-    template="""You are a helpful assistant that answers questions strictly based on the provided document context.
+PROMPT_TEMPLATE = """\
+You are a helpful assistant that answers questions strictly based on the provided document context.
 If the answer cannot be found in the context, say: "I could not find an answer in the provided documents."
 Do NOT use any knowledge outside the context below.
 
@@ -41,8 +43,7 @@ Do NOT use any knowledge outside the context below.
 
 Question: {question}
 
-Answer:""",
-)
+Answer:"""
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +72,6 @@ def answer_question(question: str) -> RAGResult:
         raise ValueError("Question must not be empty.")
 
     # 1. Load vector store
-    import os
     index_file = os.path.join(VECTOR_STORE_PATH, "index.faiss")
     if not os.path.exists(index_file):
         raise ValueError(
@@ -120,10 +120,12 @@ def answer_question(question: str) -> RAGResult:
     context = "\n\n".join(context_parts)
 
     # 4. Build prompt
-    prompt = SYSTEM_PROMPT_TEMPLATE.format(context=context, question=question)
+    prompt = PROMPT_TEMPLATE.format(context=context, question=question)
     logger.debug("Prompt length: %d chars", len(prompt))
 
-    # 5. Call LLM via OpenRouter
+    # 5. Call LLM via OpenRouter using the openai client directly.
+    #    This avoids LangChain's ChatOpenAI wrapper which passes a 'proxies'
+    #    kwarg that is no longer accepted in openai>=1.40.
     if not settings.OPENROUTER_API_KEY:
         raise RuntimeError(
             "OPENROUTER_API_KEY is not set. "
@@ -131,16 +133,18 @@ def answer_question(question: str) -> RAGResult:
         )
 
     try:
-        llm = ChatOpenAI(
-            model=settings.OPENROUTER_MODEL,
-            openai_api_key=settings.OPENROUTER_API_KEY,
-            openai_api_base=settings.OPENROUTER_BASE_URL,
-            temperature=0.1,         # Low temperature for factual answers
-            max_tokens=1024,
-            request_timeout=settings.LLM_TIMEOUT,
+        client = OpenAI(
+            api_key=settings.OPENROUTER_API_KEY,
+            base_url=settings.OPENROUTER_BASE_URL,
+            timeout=settings.LLM_TIMEOUT,
         )
-        response = llm.invoke(prompt)
-        answer = response.content.strip()
+        response = client.chat.completions.create(
+            model=settings.OPENROUTER_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=1024,
+        )
+        answer = response.choices[0].message.content.strip()
     except Exception as exc:
         logger.error("LLM call failed: %s", exc)
         raise RuntimeError(f"LLM call failed: {exc}") from exc
