@@ -1,3 +1,21 @@
+"""
+RAG (Retrieval-Augmented Generation) pipeline.
+
+Flow:
+  1. Receive a user question.
+  2. Embed the question using the same HuggingFace model used at index time.
+  3. Retrieve the top-k most similar chunks from the FAISS vector store.
+  4. Build a prompt that includes those chunks as context.
+  5. Send the prompt to the LLM via OpenRouter (OpenAI-compatible API).
+  6. Return the answer and the source document IDs/titles.
+
+The LLM is instructed to answer ONLY from the provided context,
+refusing to use outside knowledge.
+
+Note: We call the OpenAI client directly (not via LangChain's ChatOpenAI wrapper)
+to avoid the 'proxies' argument incompatibility in openai>=1.40.
+"""
+
 import logging
 import os
 from typing import TypedDict
